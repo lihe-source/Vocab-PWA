@@ -1581,7 +1581,7 @@ Views.practice = {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>${ttsOn?`<path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>`:`<line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>`}</svg>
           </button>
         </div>
-        <div class="quiz-hint">${word.english.length} 個字母</div>
+        <div class="quiz-hint">${word.english.replace(/[^a-zA-Z]/g,'').length} 個字母</div>
       `;
       document.getElementById('tts-replay-btn')?.addEventListener('click', () => {
         if (TTS.enabled) {
@@ -1605,13 +1605,14 @@ Views.practice = {
     const wrap = document.getElementById('letter-wrap'); if (!wrap) return;
     wrap.innerHTML = '';
     const wordParts = word.english.split(' ');
-    const totalLetters = word.english.replace(/\s/g, '').length;
+    // Only count actual letters — hyphens/apostrophes are static separators
+    const totalLetters = word.english.replace(/[^a-zA-Z]/g, '').length;
     // Dynamic box size: fit all letters within available screen width
     const GAP = 4; // gap between boxes
     const PADDING = 48; // total horizontal padding
     const maxWidth = (window.innerWidth || 390) - PADDING;
-    const longestPart = Math.max(...wordParts.map(p => p.length));
-    const boxesPerRow = longestPart; // longest word part determines box size
+    const longestPartLetters = Math.max(...wordParts.map(p => p.replace(/[^a-zA-Z]/g,'').length || 1));
+    const boxesPerRow = longestPartLetters; // base size on letter count only
     const maxBoxSize = Math.floor((maxWidth - GAP * (boxesPerRow - 1)) / boxesPerRow);
     let boxSize = Math.min(38, maxBoxSize);
     // Enforce minimum readability
@@ -1621,11 +1622,20 @@ Views.practice = {
     wordParts.forEach((part, wi) => {
       if (wi > 0) { const sep = document.createElement('div'); sep.className = 'word-separator'; sep.textContent = ' '; wrap.appendChild(sep); }
       const group = document.createElement('div'); group.className = 'word-group';
-      [...part].forEach(() => {
-        const box = document.createElement('div'); box.className = 'letter-box-vis';
-        // Set size once at creation — never touch in updateVisual
-        box.style.cssText = `width:${boxSize}px;height:${boxSize+6}px;font-size:${fontSize}px`;
-        group.appendChild(box); allBoxDivs.push(box);
+      [...part].forEach((ch) => {
+        const box = document.createElement('div');
+        if (/[a-zA-Z]/.test(ch)) {
+          // Interactive input box
+          box.className = 'letter-box-vis';
+          box.style.cssText = `width:${boxSize}px;height:${boxSize+6}px;font-size:${fontSize}px`;
+          allBoxDivs.push(box);
+        } else {
+          // Static separator (hyphen, apostrophe, etc.) — never part of userInput
+          box.className = 'letter-box-sep';
+          box.textContent = ch;
+          box.style.cssText = `font-size:${Math.round(fontSize*1.1)}px;line-height:${boxSize+6}px`;
+        }
+        group.appendChild(box);
       });
       wrap.appendChild(group);
     });
@@ -1633,7 +1643,8 @@ Views.practice = {
     if (ghost._beforeInputH) ghost.removeEventListener('beforeinput', ghost._beforeInputH);
     if (ghost._inputH) ghost.removeEventListener('input', ghost._inputH);
     if (ghost._keydownH) ghost.removeEventListener('keydown', ghost._keydownH);
-    let userInput = ''; const maxLen = totalLetters; const correctStr = word.english.replace(/\s/g,'').toLowerCase();
+    // correctStr contains only letters — matches what the user can type
+    let userInput = ''; const maxLen = totalLetters; const correctStr = word.english.replace(/[^a-zA-Z]/g,'').toLowerCase();
     // Track previous box state to avoid unnecessary DOM writes
     const prevCls = new Array(allBoxDivs.length).fill('');
     const prevTxt = new Array(allBoxDivs.length).fill('');
@@ -1789,7 +1800,7 @@ Views.practice = {
       state.wrongWords.push(word);
       DB.updateWord(word.id, { wrongCount: (word.wrongCount||0)+1 });
     }
-    const correctStr = word.english.replace(/\s/g,'').toLowerCase();
+    const correctStr = word.english.replace(/[^a-zA-Z]/g,'').toLowerCase();
     const actionsEl  = document.getElementById('quiz-actions');
     const boxes      = document.querySelectorAll('.letter-box-vis');
     // Flash correct answer in red
@@ -3238,7 +3249,12 @@ Views.stats = {
     const accuracyData=labels.map((d,i)=>totalData[i]>0?Math.round((correctData[i]/totalData[i])*100):null);
     const shortLabels=labels.map(d=>d.slice(5));
     const tbody=document.getElementById('stats-tbody');
-    if(tbody){ tbody.innerHTML=labels.map((d,i)=>{ const pct=totalData[i]>0?Math.round((correctData[i]/totalData[i])*100):'—'; const rec=dataMap[d]; const hasDetails=rec?.wrongWordDetails?.length>0; return `<tr><td class="date-cell">${shortLabels[i]}</td><td>${totalData[i]||'—'}</td><td class="correct-cell">${totalData[i]?correctData[i]:'—'}</td><td class="wrong-cell">${totalData[i]?(hasDetails?`<span class="wrong-clickable" data-date="${d}">${wrongData[i]} ▸</span>`:wrongData[i]):'—'}</td><td>${pct==='—'?'—':pct+'%'}</td></tr>`; }).join(''); tbody.querySelectorAll('.wrong-clickable').forEach(el=>el.addEventListener('click',()=>{const rec=dataMap[el.dataset.date]; if(rec?.wrongWordDetails) this.showWrongModal(el.dataset.date,rec.wrongWordDetails);})); }
+    if(tbody){
+      // Reverse for display: newest date on top; chart keeps chronological order
+      const revLabels=[...labels].reverse(); const revShort=revLabels.map(d=>d.slice(5));
+      tbody.innerHTML=revLabels.map((d,i)=>{ const tot=dataMap[d]?.total||0; const cor=dataMap[d]?.correct||0; const wrg=dataMap[d]?.wrong||0; const pct=tot>0?Math.round((cor/tot)*100):'—'; const rec=dataMap[d]; const hasDetails=rec?.wrongWordDetails?.length>0; return `<tr><td class="date-cell">${revShort[i]}</td><td>${tot||'—'}</td><td class="correct-cell">${tot?cor:'—'}</td><td class="wrong-cell">${tot?(hasDetails?`<span class="wrong-clickable" data-date="${d}">${wrg} ▸</span>`:wrg):'—'}</td><td>${pct==='—'?'—':pct+'%'}</td></tr>`; }).join('');
+      tbody.querySelectorAll('.wrong-clickable').forEach(el=>el.addEventListener('click',()=>{const rec=dataMap[el.dataset.date]; if(rec?.wrongWordDetails) this.showWrongModal(el.dataset.date,rec.wrongWordDetails);}));
+    }
     if(this.chartInstance) this.chartInstance.destroy();
     const ctx=document.getElementById('stats-chart'); if(!ctx) return;
     this.chartInstance=new Chart(ctx,{
@@ -3284,7 +3300,7 @@ Views.stats = {
           <option value="aiask">💬 AI 詢問</option>
         </select>
       </div>
-      ${flatSessions.length > 0 ? `<div class="rec-header">
+      ${flatSessions.length > 0 ? `<div class="rec-header-styled">
         <div>日期 / 時間</div>
         <div style="text-align:center">次序</div>
         <div class="rec-header-content">題目</div>
@@ -3446,7 +3462,7 @@ Views.stats = {
           新→舊
         </button>
       </div>
-      <div class="rec-header" id="aiask-list-header" style="display:none">
+      <div class="rec-header-styled" id="aiask-list-header" style="display:none">
         <div>日期 / 時間</div>
         <div style="text-align:center">次序</div>
         <div class="rec-header-content">問題</div>

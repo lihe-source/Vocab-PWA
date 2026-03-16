@@ -2034,6 +2034,17 @@ a.err-back-link {
   flex-shrink: 0;
 }
 
+/* Static separator in letter-box quiz (hyphen, apostrophe, etc.) */
+.letter-box-sep {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  color: var(--text-primary);
+  font-weight: 800;
+  padding: 0 1px;
+  user-select: none;
+}
+
 /* ══ Record list header row ══ */
 .rec-header {
   display: grid;
@@ -2046,6 +2057,42 @@ a.err-back-link {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* Styled green header — matches .stats-table th */
+.rec-header-styled {
+  display: grid;
+  grid-template-columns: 62px 38px 1fr auto 16px;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--primary);
+  border-radius: var(--radius) var(--radius) 0 0;
+  margin: 0 12px;
+}
 .rec-header-content { min-width: 0; }
 .rec-header-score { white-space: nowrap; flex-shrink: 0; }
+/* When rec-header-styled is used, remove top margin/radius from rec-list below it */
+.rec-header-styled + .rec-list {
+  margin-top: 0;
+  gap: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  margin-left: 12px;
+  margin-right: 12px;
+  background: var(--card-bg);
+}
+/* Flatten row cards when inside a styled table context */
+.rec-header-styled + .rec-list .rec-row {
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.rec-header-styled + .rec-list .rec-row:last-child {
+  border-bottom: none;
+}
 
