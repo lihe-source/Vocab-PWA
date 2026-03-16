@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v2.9
+// 英文單字複習 PWA - app.js v9.15
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1773,21 +1773,25 @@ Views.practice = {
     if (_qa) { _qa.onclick = () => { if (this._ghost) this._ghost.focus(); }; }
     ghost.focus(); updateVisual(); // removed ghost.click() — causes extra event overhead
   },
+  // Canonical answer normaliser — strips everything except a-z, lowercases
+  _norm(s) { return (s || '').replace(/[^a-zA-Z]/g, '').toLowerCase(); },
+
   _checkAnswer(word, typed, allBoxDivs, container, updateVisual, correctStr, maxLen) {
-    if (typed === correctStr) {
+    // Always recompute from the word itself — guards against any stale closure value
+    const canonical = this._norm(word.english);
+    const isCorrect = this._norm(typed) === canonical;
+
+    if (isCorrect) {
       Sound.playCorrect(); updateVisual('correct');
-      // Defer DB write so it doesn't block the correct-flash animation
-      requestIdleCallback ? requestIdleCallback(() => {}) : setTimeout(() => {}, 0);
-      this.showNextBtn(word, container);
+      // Brief pause so the green animation is visible, then show the Next button
+      setTimeout(() => this.showNextBtn(word, container), 300);
     } else {
       Sound.playWrong(); updateVisual('wrong');
       if (!this.state.wrongWords.find(w => w.id === word.id)) {
         this.state.wrongWords.push(word);
-        // Defer heavy DB write to not block wrong-flash animation
         setTimeout(() => DB.updateWord(word.id, { wrongCount: (word.wrongCount||0)+1 }), 50);
       }
       setTimeout(() => {
-        // Rebuild boxes fresh (clean closure, no ghost.value write needed)
         this.buildLetterBoxes(word, container);
         if (!document.getElementById('show-answer-btn')) {
           const actionsEl = document.getElementById('quiz-actions');
@@ -1797,8 +1801,11 @@ Views.practice = {
     }
   },
   _checkRetype(word, typed, allBoxDivs, container, updateVisual, correctStr) {
-    if (typed === correctStr) {
-      Sound.playCorrect(); updateVisual('correct'); this.state.waitingRetype = false; this.showNextBtn(word, container);
+    const isCorrect = this._norm(typed) === this._norm(word.english);
+    if (isCorrect) {
+      Sound.playCorrect(); updateVisual('correct');
+      this.state.waitingRetype = false;
+      setTimeout(() => this.showNextBtn(word, container), 300);
     } else {
       Sound.playWrong(); updateVisual('wrong');
       setTimeout(() => { this.buildLetterBoxes(word, container); }, 800);
@@ -1811,21 +1818,17 @@ Views.practice = {
       state.wrongWords.push(word);
       DB.updateWord(word.id, { wrongCount: (word.wrongCount||0)+1 });
     }
-    const correctStr = word.english.replace(/[^a-zA-Z]/g,'').toLowerCase();
+    const correctStr = this._norm(word.english);
     const actionsEl  = document.getElementById('quiz-actions');
     const boxes      = document.querySelectorAll('.letter-box-vis');
-    // Flash correct answer in red
+    // Flash correct letters in red
     boxes.forEach((box,i) => { box.className='letter-box-vis wrong'; box.textContent=correctStr[i]||''; });
     actionsEl.innerHTML = `<div class="answer-reveal answer-reveal-wrong"><div class="revealed-word revealed-word-wrong">${word.english.toLowerCase()}</div><div class="reveal-hint">請重新輸入一次正確拼字</div></div>`;
     // showAnswer=false BEFORE the timeout so beforeinput is live again
     state.showAnswer = false;
     state.waitingRetype = true;
-    // Keep ghost focused so iOS keyboard stays visible during the transition
     if (this._ghost) { this._ghost.style.pointerEvents = 'auto'; this._ghost.focus(); }
-    setTimeout(() => {
-      // Rebuild letter boxes fresh: new closure with userInput='' and _skipInput=false
-      this.buildLetterBoxes(word, container);
-    }, 80);
+    setTimeout(() => { this.buildLetterBoxes(word, container); }, 80);
   },
   showNextBtn(word, container) {
     const actionsEl = document.getElementById('quiz-actions');
@@ -3842,7 +3845,7 @@ Views.settings = {
 
       <!-- 版本標記 -->
       <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text-muted);letter-spacing:0.04em;user-select:none">
-        v9.13
+        v9.15
       </div>
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
