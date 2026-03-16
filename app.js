@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.2
+// 英文單字複習 PWA - app.js v9.21
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -564,7 +564,14 @@ const DB = {
     return { added, total: existing.length };
   },
   exportSentencesCSV() {
-    const ai = this.getSentenceLog().map(e => ({ date: e.date, wordEn: e.wordEn, wordPos: e.wordPos||'', wordZh: e.wordZh||'', en: e.en, zh: e.zh, source: 'ai' }));
+    const wordMap = {};
+    this.getWords().forEach(w => { wordMap[w.english.toLowerCase()] = w.chinese; });
+    const ai = this.getSentenceLog().map(e => ({
+      date: e.date, wordEn: e.wordEn, wordPos: e.wordPos||'',
+      // wordZh: use stored value, fall back to DB lookup so older entries still highlight
+      wordZh: e.wordZh || wordMap[(e.wordEn||'').toLowerCase()] || '',
+      en: e.en, zh: e.zh, source: 'ai'
+    }));
     const imported = this.getImportedSentences();
     const all = [...imported, ...ai];
     // Deduplicate by date+wordEn
@@ -1378,7 +1385,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.2</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.21</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -3299,11 +3306,18 @@ Views.stats = {
               const scoreColor = score !== null ? (score>=8?'var(--correct)':score>=5?'#f5a623':'var(--danger)') : 'var(--text-muted)';
               const timeStr = s.ts ? new Date(s.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
               const isAiMode  = (s.essayMode === 'ai');
-              const wordList  = (s.words||[]).map(w=>w.english).join(', ');
-              const promptStr = isAiMode
-                ? (s.topic ? s.topic.slice(0, 60) + (s.topic.length > 60 ? '…' : '') : '— AI 出題 —')
-                : (wordList || '—');
-              const promptStyle = isAiMode ? 'font-style:italic;color:var(--primary)' : '';
+              const wordList  = (s.words||[]).map(w=>w.english).join('、');
+              // Build a meaningful display: show words + topic if available
+              let promptStr, promptStyle;
+              if (isAiMode) {
+                const topicPart = s.topic ? s.topic.slice(0, 50) + (s.topic.length > 50 ? '…' : '') : '';
+                const wordPart  = wordList ? `[${wordList}]` : '';
+                promptStr = [topicPart, wordPart].filter(Boolean).join(' ') || '— AI 出題 —';
+                promptStyle = 'font-style:italic;color:var(--primary)';
+              } else {
+                promptStr = wordList || '—';
+                promptStyle = '';
+              }
               const dateShort = date.replace(/\//g,'/');
               return `<div class="rec-row" data-fi="${fi}">
                 <div class="rec-date">${dateShort}<br>${timeStr||'—'}</div>
@@ -3335,6 +3349,7 @@ Views.stats = {
     const { date, s, si } = item;
     const ordinals = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
     const ord = n => ordinals[n] || `${n+1}th`;
+    const wordList = (s.words||[]).map(w=>w.english).join('、');
 
     let fb = null; try { fb = s.feedback ? JSON.parse(s.feedback) : null; } catch {}
     const grammar = (fb?.grammar || []).map((g, i) => ({ ...g, idx: i }));
@@ -3368,10 +3383,13 @@ Views.stats = {
       </div>
       <div class="essay-detail-card">
         ${s.essayMode === 'ai'
-          ? `<div class="essay-detail-section-title">📌 題目</div>
-             <div style="font-size:14px;line-height:1.7;color:var(--text-primary);margin-bottom:4px;font-style:italic">\${(s.topic||'AI 出題').replace(/</g,'&lt;')}</div>`
-          : `<div class="essay-detail-section-title">📖 使用單字</div>
-             <div class="essay-fb-badges">\${wordCheckHtml}</div>`}
+          ? '<div class="essay-detail-section-title">📌 題目</div>'
+            + '<div style="font-size:14px;line-height:1.7;color:var(--text-primary);margin-bottom:4px;font-style:italic">'
+            + (s.topic||'AI 出題').replace(/</g,'&lt;') + '</div>'
+            + (wordList ? '<div class="essay-detail-section-title">📖 使用單字</div>'
+              + '<div class="essay-fb-badges">' + wordCheckHtml + '</div>' : '')
+          : '<div class="essay-detail-section-title">📖 使用單字</div>'
+            + '<div class="essay-fb-badges">' + wordCheckHtml + '</div>'}
 
         <div class="essay-detail-section-title">
           📝 撰寫的文章（含批改標注）

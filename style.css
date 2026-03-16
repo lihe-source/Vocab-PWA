@@ -75,8 +75,8 @@ html, body {
 .zh-text { font-size:13px; opacity:0.85; margin-top:8px; display:block; }
 
 /* FIX #1: Hero highlights (on dark background) */
-.hero-sentence .hl-en,
-.hero-sentence .hl-zh { color: #7effc0; font-weight: 800; }
+.hero-sentence .hl-en { color: #7effc0; font-weight: 800; }
+.hero-sentence .hl-zh { color: #7effc0; font-weight: 800; font-style: normal; }
 
 .hero-loading { display:flex; align-items:center; gap:10px; opacity:0.8; font-size:14px; }
 .loading-dots span { display:inline-block; width:6px; height:6px; background:white; border-radius:50%; animation:dot-bounce 1.2s infinite; }
