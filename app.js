@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.16
+// 英文單字複習 PWA - app.js v9.17
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1751,7 +1751,7 @@ Views.practice = {
     if (isCorrect) {
       Sound.playCorrect(); updateVisual('correct');
       // Brief pause so the green animation is visible, then show the Next button
-      setTimeout(() => this.showNextBtn(word, container), 300);
+      requestAnimationFrame(() => requestAnimationFrame(() => this.showNextBtn(word, container)));
     } else {
       Sound.playWrong(); updateVisual('wrong');
       if (!this.state.wrongWords.find(w => w.id === word.id)) {
@@ -1772,7 +1772,7 @@ Views.practice = {
     if (isCorrect) {
       Sound.playCorrect(); updateVisual('correct');
       this.state.waitingRetype = false;
-      setTimeout(() => this.showNextBtn(word, container), 300);
+      requestAnimationFrame(() => requestAnimationFrame(() => this.showNextBtn(word, container)));
     } else {
       Sound.playWrong(); updateVisual('wrong');
       setTimeout(() => { this.buildLetterBoxes(word, container); }, 800);
@@ -3812,7 +3812,7 @@ Views.settings = {
 
       <!-- 版本標記 -->
       <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text-muted);letter-spacing:0.04em;user-select:none">
-        v9.16
+        v9.17
       </div>
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
