@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.15
+// 英文單字複習 PWA - app.js v9.16
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1651,9 +1651,10 @@ Views.practice = {
       wrap.appendChild(group);
     });
     const ghost = this._ghost; ghost.value = '';
-    if (ghost._beforeInputH) ghost.removeEventListener('beforeinput', ghost._beforeInputH);
-    if (ghost._inputH) ghost.removeEventListener('input', ghost._inputH);
-    if (ghost._keydownH) ghost.removeEventListener('keydown', ghost._keydownH);
+    // Clean up previous handlers (only 'input' is used now)
+    if (ghost._beforeInputH) { ghost.removeEventListener('beforeinput', ghost._beforeInputH); ghost._beforeInputH = null; }
+    if (ghost._inputH)       { ghost.removeEventListener('input', ghost._inputH);             ghost._inputH = null;       }
+    if (ghost._keydownH)     { ghost.removeEventListener('keydown', ghost._keydownH);          ghost._keydownH = null;     }
     // correctStr contains only letters — matches what the user can type
     let userInput = ''; const maxLen = totalLetters; const correctStr = word.english.replace(/[^a-zA-Z]/g,'').toLowerCase();
     // Track previous box state to avoid unnecessary DOM writes
@@ -1690,81 +1691,47 @@ Views.practice = {
         prevCursorIdx = newCursor;
       }
     };
-    // ── Input optimisation (three-layer, zero ghost.value writes during normal typing) ──
+    // ── Input handling ──────────────────────────────────────────────────────────
     //
-    // KEY INSIGHT: ghost.value writes are the main source of iOS lag.
-    //   - e.preventDefault() stops the browser inserting the char, but
-    //     ghost.value = x  STILL triggers an internal layout pass on iOS Safari.
-    //   - Solution: never write ghost.value inside the hot path.
-    //     Use a _skipInput flag so the 'input' fallback knows the event was
-    //     already handled and skips its own (redundant) ghost.value read.
+    // ROOT CAUSE OF PREVIOUS BUG:
+    //   iOS with Chinese keyboard in English mode fires beforeinput TWICE per key:
+    //     1) inputType="insertCompositionText"  (intermediate)
+    //     2) inputType="insertFromComposition"  (final committed char)
+    //   The old beforeinput handler processed BOTH, double-counting every letter.
+    //   e.g. typing "cat" produced userInput="cca" → wrong answer every time.
     //
-    // _checkAnswer / _checkRetype are deferred via requestAnimationFrame so the
-    // final box paint (filled / cursor) happens BEFORE any answer-result DOM work.
-    //
-    //   beforeinput → preventDefault → update userInput & DOM (NO ghost.value write)
-    //                                → set _skipInput = true
-    //                                → schedule check via rAF if at maxLen
-    //   keydown     → Backspace: update userInput & DOM (NO ghost.value write)
-    //                          → set _skipInput = true
-    //   input       → if _skipInput: clear flag, return (already handled)
-    //              → else (paste / Android IME): sync from ghost.value, updateVisual
+    // FIX: Remove beforeinput entirely. Let the browser write to ghost naturally.
+    //   Read result via 'input' event only — one event per committed character,
+    //   works correctly on iOS (all keyboards), Android IME, desktop, and paste.
+    //   No ghost.value writes from JS (avoids the layout-pass lag).
 
-    let _skipInput = false;
-
-    ghost._beforeInputH = (e) => {
-      e.preventDefault();                            // stop browser writing to ghost
+    ghost._inputH = () => {
       if (this.state.showAnswer) return;
-      const data = (e.data || '').replace(/[^a-zA-Z]/g, '').toLowerCase();
-      if (!data || userInput.length >= maxLen) return;
-      userInput += data[0];
-      _skipInput = true;
-      // Schedule visual update + answer check in a single rAF — one DOM write batch
+      // Read what the browser committed — filter letters, cap at maxLen
+      const raw = ghost.value.replace(/[^a-zA-Z]/g, '').toLowerCase().slice(0, maxLen);
+      if (raw === userInput) return;  // no change (spurious event)
+      userInput = raw;
+      updateVisual();
+      if (userInput.length < maxLen) return;
+      // All boxes filled — evaluate answer
+      const snapshot = userInput;
       requestAnimationFrame(() => {
-        updateVisual();
-        if (userInput.length === maxLen) {
-          requestAnimationFrame(() => {
-            if (!this.state.waitingRetype)
-              this._checkAnswer(word, userInput, allBoxDivs, container, updateVisual, correctStr, maxLen);
-            else
-              this._checkRetype(word, userInput, allBoxDivs, container, updateVisual, correctStr);
-          });
-        }
+        if (this.state.showAnswer) return;
+        if (!this.state.waitingRetype)
+          this._checkAnswer(word, snapshot, allBoxDivs, container, updateVisual, correctStr, maxLen);
+        else
+          this._checkRetype(word, snapshot, allBoxDivs, container, updateVisual, correctStr);
       });
     };
 
-    ghost._keydownH = (e) => {
-      if (e.key === 'Backspace') {
-        e.preventDefault();
-        if (userInput.length === 0) return;
-        userInput = userInput.slice(0, -1);
-        _skipInput = true;
-        requestAnimationFrame(() => updateVisual());
-      } else if (e.key === 'Enter') {
-        // Handled by _enterNextH when waiting for next; ignore otherwise
-      }
-    };
+    // _beforeInputH kept as no-op for cleanup API consistency (removed below)
+    ghost._beforeInputH = null;
 
-    // Paste / Android IME fallback — fires when beforeinput is NOT supported
-    ghost._inputH = () => {
-      if (_skipInput) { _skipInput = false; return; }   // already handled above
-      const raw = ghost.value.replace(/[^a-zA-Z]/g, '').toLowerCase().slice(0, maxLen);
-      if (raw === userInput) return;
-      userInput = raw;
-      ghost.value = userInput;                           // only write here (paste path)
-      updateVisual();
-      if (userInput.length === maxLen && !this.state.showAnswer) {
-        requestAnimationFrame(() => {
-          if (!this.state.waitingRetype)
-            this._checkAnswer(word, userInput, allBoxDivs, container, updateVisual, correctStr, maxLen);
-          else
-            this._checkRetype(word, userInput, allBoxDivs, container, updateVisual, correctStr);
-        });
-      }
-    };
-    ghost.addEventListener('beforeinput', ghost._beforeInputH);
+    // keydown: only needed for _enterNextH (added in showNextBtn); backspace is
+    // handled naturally by the browser writing to ghost then firing 'input'.
+    ghost._keydownH = null;
+
     ghost.addEventListener('input', ghost._inputH);
-    ghost.addEventListener('keydown', ghost._keydownH);
     ghost.style.pointerEvents = 'auto';
     wrap.style.cursor = 'text';
     // Tap anywhere in letter-wrap or the quiz-area to re-focus ghost
@@ -3845,7 +3812,7 @@ Views.settings = {
 
       <!-- 版本標記 -->
       <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text-muted);letter-spacing:0.04em;user-select:none">
-        v9.15
+        v9.16
       </div>
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
