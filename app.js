@@ -1006,16 +1006,15 @@ If the word does not exist or is invalid, return: []`;
 
 // ===== FIREBASE SYNC =====
 const Firebase = {
-  _app: null,
+  _app:  null,
   _auth: null,
-  _db: null,
+  _db:   null,
   _user: null,
-  _listeners: [],   // { event, fn } for cleanup
 
-  // ── Dynamically load Firebase SDK ──
+  // ── Config (obfuscated) ──
   _rc(p) { try { return atob(p[0]+p[1]); } catch { return ''; } },
   _getCfg() {
-    const _=this._rc.bind(this);
+    const _ = this._rc.bind(this);
     return {
       apiKey:            _(['QUl6YVN5Qmdxa0JmVE1Nc2MtcG','VCTk9LWGVUNDR1dDdpWGZwRmpv']),
       authDomain:        _(['dm9jYWItcHdhLXN5bmMu','ZmlyZWJhc2VhcHAuY29t']),
@@ -1026,116 +1025,89 @@ const Firebase = {
       appId:             _(['MTo0NjczNzEzMDAxMjI6d2ViOmMw','NDA1OTk3MmE4NDI0YWRjMTg4YTM='])
     };
   },
-  async _loadSDK() {
-    if (this._app) return true;
-    const cfg = this._getCfg();
-    if (!cfg.apiKey || !cfg.databaseURL) return false;
-    // Load Firebase compat scripts
-    await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-    await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js');
-    await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js');
-    try {
-      // Init or reuse existing app
-      if (firebase.apps && firebase.apps.length) {
-        this._app = firebase.apps[0];
-      } else {
-        this._app = firebase.initializeApp(cfg);
-      }
-      this._auth = firebase.auth();
-      this._db   = firebase.database();
-      return true;
-    } catch(e) { console.error('Firebase init error', e); return false; }
-  },
 
+  // ── Dynamically load Firebase compat SDK ──
   _loadScript(src) {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
       const s = document.createElement('script');
-      s.src = src; s.onload = resolve; s.onerror = reject;
+      s.src = src; s.async = true;
+      s.onload = resolve; s.onerror = () => reject(new Error('Script load failed: ' + src));
       document.head.appendChild(s);
     });
   },
 
-  // ── Auth state ──
-  isReady()     { return !!this._app; },
-  // Use Firebase's own currentUser as ground truth — more reliable than _user
-  // which can be cleared by a brief onAuthStateChanged(null) on iOS/PWA resume
-  isSignedIn()  { return !!(this._user || this._auth?.currentUser); },
-  getUserEmail(){ return (this._user || this._auth?.currentUser)?.email || ''; },
-  _currentUser(){ return this._user || this._auth?.currentUser || null; },
-
-  // ── Detect PWA standalone or mobile (popup unreliable on iOS/PWA) ──
-  _preferRedirect() {
-    const ua = navigator.userAgent || '';
-    const isIOS = /iPhone|iPad|iPod/.test(ua);
-    const isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
-    const isStandalone = window.navigator.standalone === true
-      || window.matchMedia('(display-mode: standalone)').matches;
-    return isIOS || isStandalone || (isSafari && /Mobile/.test(ua));
+  async _loadSDK() {
+    if (this._app) return true;
+    const cfg = this._getCfg();
+    if (!cfg.apiKey || !cfg.databaseURL) return false;
+    try {
+      await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+      await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js');
+      await this._loadScript('https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js');
+      this._app  = (firebase.apps && firebase.apps.length)
+                   ? firebase.apps[0]
+                   : firebase.initializeApp(cfg);
+      this._auth = firebase.auth();
+      this._db   = firebase.database();
+      return true;
+    } catch (e) {
+      console.error('[Firebase] SDK load error', e);
+      return false;
+    }
   },
 
+  // ── Auth state helpers ──
+  isReady()      { return !!this._app; },
+  isSignedIn()   { return !!(this._user); },
+  getUserEmail() { return this._user?.email || ''; },
+
+  // ── Startup: load SDK + set persistence + listen for auth state ──
   async init() {
     const ok = await this._loadSDK();
     if (!ok) return false;
-    // ── Force LOCAL persistence so auth survives iOS ITP / PWA resume ──
+
+    // Set LOCAL persistence so auth survives page reloads / PWA restarts.
+    // Must be called BEFORE onAuthStateChanged to take effect on first run.
     try {
       await this._auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-    } catch(e) { /* older SDK may not support — ignore */ }
-    // ── Handle redirect result FIRST (after signInWithRedirect returns) ──
-    try {
-      const result = await this._auth.getRedirectResult();
-      if (result && result.user) this._user = result.user;
     } catch (e) {
-      if (e.code !== 'auth/no-auth-event') console.warn('getRedirectResult:', e.code);
+      console.warn('[Firebase] setPersistence failed (will use default):', e.code);
     }
-    // ── Persistent auth-state listener ──
-    // NOTE: only clear _user on explicit null — never overwrite a valid user
-    // with null from a transient auth re-check (iOS PWA resume / token refresh)
+
+    // Wait for the SDK to restore the saved auth state (async, from IndexedDB/localStorage).
+    // The very first onAuthStateChanged call always fires — null means "no saved session",
+    // a user object means a session was restored from storage.
     return new Promise(resolve => {
-      let resolved = false;
-      this._auth.onAuthStateChanged(user => {
-        if (user) {
-          // Always update when we have a real user
-          this._user = user;
-        } else if (resolved) {
-          // After initial load: null means signed-out — trust it
-          this._user = null;
-        }
-        // On first fire with null: do NOT overwrite _user (could be transient)
-        if (!resolved) { resolved = true; resolve(true); }
+      const unsub = this._auth.onAuthStateChanged(user => {
+        this._user = user || null;
+        unsub();          // unsubscribe after the initial state is known
+        resolve(true);
+
+        // Re-attach a permanent listener to keep _user in sync
+        // (sign-in, sign-out, token refresh from other tabs, etc.)
+        this._auth.onAuthStateChanged(u => { this._user = u || null; });
       });
     });
   },
 
+  // ── Sign in with Google popup ──
+  // Always uses popup — works on iOS Safari 14.5+, Chrome, Firefox.
+  // If popup is blocked, shows a clear error rather than silently redirecting.
   async signIn() {
-    // SDK is guaranteed loaded from init() at startup.
-    // Avoid any extra await before signInWithPopup — it breaks the
-    // iOS Safari user-gesture chain and causes popup-blocked errors.
     if (!this._app || !this._auth) {
+      // SDK not yet loaded (edge case: user tapped button before init finished)
       const ok = await this._loadSDK();
-      if (!ok) throw new Error('FB_NOT_CONFIGURED');
+      if (!ok) throw new Error('FB_SDK_LOAD_FAILED');
     }
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('email');
+    provider.addScope('profile');
     provider.setCustomParameters({ prompt: 'select_account' });
 
-    if (this._preferRedirect()) {
-      // Mobile / PWA standalone: redirect is the only reliable method
-      await this._auth.signInWithRedirect(provider);
-      return null; // Page will reload; result captured in init() → getRedirectResult()
-    }
-    // Desktop: try popup, fall back to redirect if blocked
-    try {
-      const result = await this._auth.signInWithPopup(provider);
-      this._user = result.user;
-      return result.user;
-    } catch (e) {
-      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user'
-          || e.code === 'auth/cancelled-popup-request') {
-        await this._auth.signInWithRedirect(provider);
-        return null;
-      }
-      throw e;
-    }
+    const result = await this._auth.signInWithPopup(provider);
+    this._user = result.user;
+    return result.user;
   },
 
   async signOut() {
@@ -1144,31 +1116,29 @@ const Firebase = {
     this._user = null;
   },
 
-  // ── Build the full data payload ──
+  // ── Build upload payload ──
   _buildPayload() {
     return {
-      words:      DB.getWords(),
-      history:    DB.getHistory(),
-      sentences:  DB.getSentenceLog(),
-      imported:   DB.getImportedSentences(),
-      boosted:    DB.getBoostedWords(),
+      words:        DB.getWords(),
+      history:      DB.getHistory(),
+      sentences:    DB.getSentenceLog(),
+      imported:     DB.getImportedSentences(),
+      boosted:      DB.getBoostedWords(),
       essayHistory: DB.getEssayHistory(),
       aiAskHistory: DB.getAiAskHistory(),
-      updatedAt:  new Date().toISOString()
+      updatedAt:    new Date().toISOString()
     };
   },
 
   // ── Upload: local → Firebase (rotating 5-slot backup) ──
   async upload() {
-    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
-    const uid  = _u.uid;
-    const data = this._buildPayload();
+    if (!this._user) throw new Error('NOT_SIGNED_IN');
+    const uid      = this._user.uid;
+    const data     = this._buildPayload();
     const slotsRef = this._db.ref(`users/${uid}/backups`);
-    // Read existing slots
-    const snap = await slotsRef.once('value');
-    let slots = snap.val() || [];
+    const snap     = await slotsRef.once('value');
+    let   slots    = snap.val() || [];
     if (!Array.isArray(slots)) slots = Object.values(slots);
-    // Prepend new slot, keep newest 5
     slots.unshift(data);
     if (slots.length > 5) slots = slots.slice(0, 5);
     await slotsRef.set(slots);
@@ -1177,96 +1147,81 @@ const Firebase = {
     return now;
   },
 
-  // ── List backups ──
+  // ── List cloud backup slots ──
   async listBackups() {
-    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
-    const uid  = _u.uid;
+    if (!this._user) throw new Error('NOT_SIGNED_IN');
+    const uid  = this._user.uid;
     const snap = await this._db.ref(`users/${uid}/backups`).once('value');
-    let slots = snap.val() || [];
+    let   slots = snap.val() || [];
     if (!Array.isArray(slots)) slots = Object.values(slots);
-    return slots; // array, index 0 = newest
+    return slots; // index 0 = newest
   },
 
   // ── Download single slot ──
   async downloadSlot(idx) {
-    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
-    const uid  = _u.uid;
+    if (!this._user) throw new Error('NOT_SIGNED_IN');
+    const uid  = this._user.uid;
     const snap = await this._db.ref(`users/${uid}/backups/${idx}`).once('value');
     const data = snap.val();
     if (!data) throw new Error('NO_CLOUD_DATA');
     return data;
   },
 
-  // ── Legacy single download (for auto-sync, uses slot 0) ──
-  async download() {
-    return this.downloadSlot(0);
-  },
+  // ── Auto-sync uses slot 0 (newest) ──
+  async download() { return this.downloadSlot(0); },
 
-  // ── Apply downloaded data to local DB ──
+  // ── Apply downloaded data to local storage ──
   applyDownload(data, mode) {
-    // mode: 'overwrite' | 'merge'
     if (mode === 'overwrite') {
-      if (Array.isArray(data.words))        localStorage.setItem('vocabWords',          JSON.stringify(data.words));
-      if (Array.isArray(data.history))      localStorage.setItem('practiceHistory',     JSON.stringify(data.history));
-      if (Array.isArray(data.sentences))    localStorage.setItem('sentenceLog',         JSON.stringify(data.sentences));
-      if (Array.isArray(data.imported))     localStorage.setItem('importedSentences',   JSON.stringify(data.imported));
-      if (Array.isArray(data.boosted))      localStorage.setItem('boostedWords',        JSON.stringify(data.boosted));
-      if (Array.isArray(data.essayHistory)) localStorage.setItem('essayHistory',        JSON.stringify(data.essayHistory));
-      if (Array.isArray(data.aiAskHistory)) localStorage.setItem('aiAskHistory',        JSON.stringify(data.aiAskHistory));
+      if (Array.isArray(data.words))        localStorage.setItem('vocabWords',        JSON.stringify(data.words));
+      if (Array.isArray(data.history))      localStorage.setItem('practiceHistory',   JSON.stringify(data.history));
+      if (Array.isArray(data.sentences))    localStorage.setItem('sentenceLog',       JSON.stringify(data.sentences));
+      if (Array.isArray(data.imported))     localStorage.setItem('importedSentences', JSON.stringify(data.imported));
+      if (Array.isArray(data.boosted))      localStorage.setItem('boostedWords',      JSON.stringify(data.boosted));
+      if (Array.isArray(data.essayHistory)) localStorage.setItem('essayHistory',      JSON.stringify(data.essayHistory));
+      if (Array.isArray(data.aiAskHistory)) localStorage.setItem('aiAskHistory',      JSON.stringify(data.aiAskHistory));
     } else {
-      // merge words: cloud wins on conflict (same english)
-      const localWords  = DB.getWords();
-      const cloudWords  = data.words || [];
-      const merged = [...localWords];
-      cloudWords.forEach(cw => {
-        if (!merged.find(lw => lw.english === cw.english)) merged.push(cw);
-      });
+      // ── Merge mode ──
+      // words: keep local, add cloud words that don't exist locally
+      const lw = DB.getWords(); const cw = data.words || [];
+      const merged = [...lw]; cw.forEach(w => { if (!merged.find(x => x.english === w.english)) merged.push(w); });
       localStorage.setItem('vocabWords', JSON.stringify(merged));
-      // merge history: keep higher total per date
-      const localHist  = DB.getHistory();
-      const cloudHist  = data.history || [];
-      const histMap = {};
-      [...localHist, ...cloudHist].forEach(h => {
-        if (!histMap[h.date] || h.total > histMap[h.date].total) histMap[h.date] = h;
-      });
-      localStorage.setItem('practiceHistory', JSON.stringify(Object.values(histMap)));
-      // merge sentences (union)
-      const localSent  = DB.getSentenceLog();
-      const cloudSent  = data.sentences || [];
-      const sentSet    = new Set(localSent.map(s => s.word + s.date));
-      const mergedSent = [...localSent, ...cloudSent.filter(s => !sentSet.has(s.word + s.date))];
-      localStorage.setItem('sentenceLog', JSON.stringify(mergedSent));
-      // imported sentences
-      const localImp   = DB.getImportedSentences();
-      const cloudImp   = data.imported || [];
-      const impSet     = new Set(localImp.map(s => s.word + s.english));
-      const mergedImp  = [...localImp, ...cloudImp.filter(s => !impSet.has(s.word + s.english))];
-      localStorage.setItem('importedSentences', JSON.stringify(mergedImp));
-      // boosted
-      const localB     = new Set(DB.getBoostedWords());
-      (data.boosted || []).forEach(id => localB.add(id));
-      localStorage.setItem('boostedWords', JSON.stringify([...localB]));
-      // essay history: merge by date+ts
+
+      // history: keep highest total per date
+      const lh = DB.getHistory(); const ch = data.history || []; const hm = {};
+      [...lh, ...ch].forEach(h => { if (!hm[h.date] || h.total > hm[h.date].total) hm[h.date] = h; });
+      localStorage.setItem('practiceHistory', JSON.stringify(Object.values(hm)));
+
+      // sentences & imported: union by key
+      const ls = DB.getSentenceLog(); const cs = data.sentences || [];
+      const ss = new Set(ls.map(s => s.word + s.date));
+      localStorage.setItem('sentenceLog', JSON.stringify([...ls, ...cs.filter(s => !ss.has(s.word + s.date))]));
+
+      const li = DB.getImportedSentences(); const ci = data.imported || [];
+      const is = new Set(li.map(s => s.word + s.english));
+      localStorage.setItem('importedSentences', JSON.stringify([...li, ...ci.filter(s => !is.has(s.word + s.english))]));
+
+      // boosted: union
+      const lb = new Set(DB.getBoostedWords()); (data.boosted || []).forEach(id => lb.add(id));
+      localStorage.setItem('boostedWords', JSON.stringify([...lb]));
+
+      // essay history: merge sessions by ts
       if (Array.isArray(data.essayHistory)) {
-        const localEssay  = DB.getEssayHistory();
-        const cloudEssay  = data.essayHistory;
-        const essayMap    = {};
-        [...localEssay, ...cloudEssay].forEach(h => {
-          if (!essayMap[h.date]) { essayMap[h.date] = { ...h }; }
+        const le = DB.getEssayHistory(); const em = {};
+        [...le, ...data.essayHistory].forEach(h => {
+          if (!em[h.date]) { em[h.date] = { ...h, sessions: [...(h.sessions||[])] }; }
           else {
-            const existing = new Set((essayMap[h.date].sessions||[]).map(s => s.ts));
-            (h.sessions||[]).forEach(s => { if (!existing.has(s.ts)) { essayMap[h.date].sessions.push(s); existing.add(s.ts); } });
+            const ex = new Set((em[h.date].sessions||[]).map(s => s.ts));
+            (h.sessions||[]).forEach(s => { if (!ex.has(s.ts)) { em[h.date].sessions.push(s); ex.add(s.ts); } });
           }
         });
-        localStorage.setItem('essayHistory', JSON.stringify(Object.values(essayMap)));
+        localStorage.setItem('essayHistory', JSON.stringify(Object.values(em)));
       }
-      // aiask history: merge by id
+
+      // ai-ask history: merge by id
       if (Array.isArray(data.aiAskHistory)) {
-        const localAsk   = DB.getAiAskHistory();
-        const cloudAsk   = data.aiAskHistory;
-        const askSet     = new Set(localAsk.map(e => e.id));
-        const mergedAsk  = [...localAsk, ...cloudAsk.filter(e => !askSet.has(e.id))];
-        localStorage.setItem('aiAskHistory', JSON.stringify(mergedAsk));
+        const la = DB.getAiAskHistory(); const as = new Set(la.map(e => e.id));
+        localStorage.setItem('aiAskHistory', JSON.stringify([...la, ...data.aiAskHistory.filter(e => !as.has(e.id))]));
       }
     }
     const now = new Date().toLocaleString('zh-TW');
@@ -3885,6 +3840,11 @@ Views.settings = {
         <div style="height:20px"></div>
       </div>
 
+      <!-- 版本標記 -->
+      <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text-muted);letter-spacing:0.04em;user-select:none">
+        v9.13
+      </div>
+
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">
     `;
 
@@ -4102,26 +4062,21 @@ Views.settings = {
       if (results.length > 0) this.render(container);
     });
 
-    // ── Google 登入（共用 handler — 支援 popup 與 redirect 兩種流程） ──
+    // ── Google 登入 ──
     const _doSignIn = async (btn) => {
       if (btn) { btn.disabled = true; btn.textContent = '登入中…'; }
       try {
-        const user = await Firebase.signIn();
-        if (user) {
-          // Popup flow: user returned immediately
-          showToast('✓ 已登入 ' + Firebase.getUserEmail());
-          this.render(container);
-        } else {
-          // Redirect flow: page is about to reload — show a brief hint
-          showToast('正在跳轉 Google 登入…', 2000);
-          // btn stays disabled; page reload will complete the flow
-        }
+        await Firebase.signIn();
+        showToast('✓ 已登入 ' + Firebase.getUserEmail());
+        this.render(container);
       } catch(e) {
         let msg = '登入失敗，請稍後再試';
+        if (e.code === 'auth/popup-blocked')           msg = '彈出視窗被封鎖，請允許後再試';
         if (e.code === 'auth/popup-closed-by-user')    msg = '登入視窗已關閉';
         if (e.code === 'auth/cancelled-popup-request') msg = '登入已取消，請重試';
-        if (e.message === 'FB_NOT_CONFIGURED')         msg = '初始化失敗，請稍後再試';
-        showToast(msg, 3000);
+        if (e.code === 'auth/network-request-failed')  msg = '網路錯誤，請確認連線後再試';
+        if (e.message === 'FB_SDK_LOAD_FAILED')        msg = 'SDK 載入失敗，請稍後再試';
+        showToast(msg, 3500);
         if (btn) { btn.disabled = false; btn.textContent = '使用 Google 帳號登入'; }
       }
     };
@@ -4233,23 +4188,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ── Firebase init + auto-sync on startup ──
   try {
     await Firebase.init();
-    if (Firebase.isSignedIn()) {
-      // Refresh settings UI if user just returned from a redirect sign-in
-      if (Router._current === 'settings') {
-        Views.settings?.render?.(document.getElementById('view-container'));
-      }
-      if (DB.getFbAutoSync()) {
-        showToast('☁️ 自動同步中…', 1800);
-        try {
-          const data = await Firebase.download();
-          Firebase.applyDownload(data, 'merge');
-          showToast('✓ 雲端資料已同步', 2500);
-        } catch(e) {
-          if (e.message !== 'NO_CLOUD_DATA') console.warn('Auto-sync download failed', e);
-        }
+    if (Firebase.isSignedIn() && DB.getFbAutoSync()) {
+      showToast('☁️ 自動同步中…', 1800);
+      try {
+        const data = await Firebase.download();
+        Firebase.applyDownload(data, 'merge');
+        showToast('✓ 雲端資料已同步', 2500);
+      } catch(e) {
+        if (e.message !== 'NO_CLOUD_DATA') console.warn('Auto-sync download failed', e);
       }
     }
-  } catch(e) { console.warn('Firebase init failed', e); }
+  } catch(e) { console.warn('[Firebase] init failed:', e); }
 
   // ── Global back-to-top FAB (all pages except quiz / essay) ──
   const _backTopBtn = document.getElementById('global-back-top');
