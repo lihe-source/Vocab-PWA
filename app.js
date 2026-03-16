@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.17
+// 英文單字複習 PWA - app.js v9.2
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1378,7 +1378,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.2</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -1464,7 +1464,9 @@ Views.home = {
       logContent.innerHTML = `<div class="log-empty">尚無例句記錄<br><span style="font-size:12px">可生成 AI 例句，或在設定頁匯入 CSV 例句</span></div>`;
       return;
     }
-    logContent.innerHTML = log.map(entry => `
+    // Show most recent 5 items; wrap in scrollable container
+    const recent = log.slice(0, 5);
+    logContent.innerHTML = `<div class="sentence-log-scroll">${recent.map(entry => `
       <div class="log-entry-card">
         <div class="log-entry-header">
           <span class="log-date">${entry.date}</span>
@@ -1473,8 +1475,7 @@ Views.home = {
         </div>
         <div class="log-entry-en">${highlightEn(entry.en, entry.wordEn)}</div>
         <div class="log-entry-zh">${highlightZh(entry.zh, entry.wordZh)}</div>
-      </div>
-    `).join('');
+      </div>`).join('')}</div>`;
   }
 };
 
@@ -2131,7 +2132,7 @@ Views.database = {
         </button>
       </div>
       ${dm ? `<button id="db-back-to-top" class="db-back-to-top" title="回到頂部"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>` : ''}
-      <div class="db-list" id="db-list">
+      <div class="db-list-scroll"><div class="db-list" id="db-list">
         ${words.length === 0
           ? `<div class="db-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:block;margin:auto"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><div class="db-empty-title">資料庫是空的</div><div class="db-empty-sub">點選「新增」或從 ECDICT 搜尋加入單字</div></div>`
           : words.map(w => {
@@ -2150,7 +2151,7 @@ Views.database = {
                 </div>
               </div>`;
             }).join('')}
-      </div>
+      </div></div>
       <div style="height:20px"></div>
     `;
     // TTS buttons in word list
@@ -3282,13 +3283,13 @@ Views.stats = {
         </select>
       </div>
       ${flatSessions.length > 0 ? `<div class="rec-header-styled">
-        <div>日期 / 時間</div>
+        <div style="text-align:center">日期 / 時間</div>
         <div style="text-align:center">次序</div>
-        <div class="rec-header-content">題目</div>
-        <div class="rec-header-score">分數</div>
+        <div class="rec-header-content" style="text-align:center">題目</div>
+        <div class="rec-header-score" style="text-align:center">分數</div>
         <div></div>
       </div>` : ''}
-      <div class="rec-list">
+      <div class="rec-list-scroll"><div class="rec-list">
         ${flatSessions.length === 0
           ? '<div class="essay-stats-empty">尚無文章撰寫記錄<br><span style="font-size:12px;opacity:0.6">前往練習 → 文章撰寫開始練習</span></div>'
           : flatSessions.map((item, fi) => {
@@ -3312,7 +3313,7 @@ Views.stats = {
                 <div class="rec-arrow">▸</div>
               </div>`;
             }).join('')}
-      </div>
+      </div></div>
       <div style="height:20px"></div>
     `;
 
@@ -3444,13 +3445,13 @@ Views.stats = {
         </button>
       </div>
       <div class="rec-header-styled" id="aiask-list-header" style="display:none">
-        <div>日期 / 時間</div>
+        <div style="text-align:center">日期 / 時間</div>
         <div style="text-align:center">次序</div>
-        <div class="rec-header-content">問題</div>
-        <div class="rec-header-score"></div>
+        <div class="rec-header-content" style="text-align:center">問題</div>
+        <div class="rec-header-score" style="text-align:center">類別</div>
         <div></div>
       </div>
-      <div id="aiask-list" class="rec-list"></div>
+      <div class="rec-list-scroll"><div id="aiask-list" class="rec-list"></div></div>
       <div style="height:20px"></div>`;
 
     document.getElementById('stats-mode-select')?.addEventListener('change', (e) => {
@@ -3808,11 +3809,6 @@ Views.settings = {
         ${fbSectionHtml}
 
         <div style="height:20px"></div>
-      </div>
-
-      <!-- 版本標記 -->
-      <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text-muted);letter-spacing:0.04em;user-select:none">
-        v9.17
       </div>
 
       <input type="file" id="one-click-import-input" accept=".csv,.zip" multiple style="display:none">

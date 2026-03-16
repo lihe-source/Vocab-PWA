@@ -105,6 +105,52 @@ html, body {
 .menu-card-title { font-size:14px; font-weight:800; color:var(--text); }
 .menu-card-sub { font-size:11px; color:var(--text-muted); margin-top:-6px; }
 
+/* ── Sentence log: show latest 5, scrollable ── */
+.sentence-log-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 2px;
+}
+.sentence-log-scroll::-webkit-scrollbar { width: 3px; }
+.sentence-log-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Database word list: scrollable ── */
+.db-list-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.db-list-scroll::-webkit-scrollbar { width: 3px; }
+.db-list-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Stats rec-list: scrollable ── */
+.rec-list-scroll {
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.rec-list-scroll::-webkit-scrollbar { width: 3px; }
+.rec-list-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+/* Keep styled header + scroll wrapper visually connected */
+.rec-header-styled + .rec-list-scroll { margin-top: 0; }
+.rec-header-styled + .rec-list-scroll .rec-list { margin: 0 12px; }
+.rec-header-styled + .rec-list-scroll .rec-list .rec-row {
+  border-radius: 0; border: none; border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+}
+.rec-header-styled + .rec-list-scroll .rec-list .rec-row:last-child { border-bottom: none; }
+
+/* ── Menu card version badge ── */
+.menu-card-ver {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-top: 1px;
+  opacity: 0.75;
+}
+
+
 /* ===== SENTENCE LOG (FIX #1) ===== */
 .sentence-log-section { margin: 4px 12px 0; }
 .sentence-log-header { display:flex; align-items:center; gap:6px; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); padding:10px 4px 8px; }
