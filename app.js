@@ -1061,25 +1061,65 @@ const Firebase = {
   isSignedIn()  { return !!this._user; },
   getUserEmail(){ return this._user?.email || ''; },
 
+  // ── Detect PWA standalone or mobile (popup unreliable on iOS/PWA) ──
+  _preferRedirect() {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/.test(ua);
+    const isSafari = /Safari/.test(ua) && !/Chrome/.test(ua);
+    const isStandalone = window.navigator.standalone === true
+      || window.matchMedia('(display-mode: standalone)').matches;
+    return isIOS || isStandalone || (isSafari && /Mobile/.test(ua));
+  },
+
   async init() {
     const ok = await this._loadSDK();
     if (!ok) return false;
-    // Restore auth state
+    // ── Handle redirect result FIRST (after signInWithRedirect returns) ──
+    try {
+      const result = await this._auth.getRedirectResult();
+      if (result && result.user) this._user = result.user;
+    } catch (e) {
+      if (e.code !== 'auth/no-auth-event') console.warn('getRedirectResult:', e.code);
+    }
+    // ── Persistent auth-state listener ──
     return new Promise(resolve => {
+      let resolved = false;
       this._auth.onAuthStateChanged(user => {
         this._user = user;
-        resolve(true);
+        if (!resolved) { resolved = true; resolve(true); }
       });
     });
   },
 
   async signIn() {
-    const ok = await this._loadSDK();
-    if (!ok) throw new Error('FB_NOT_CONFIGURED');
+    // SDK is guaranteed loaded from init() at startup.
+    // Avoid any extra await before signInWithPopup — it breaks the
+    // iOS Safari user-gesture chain and causes popup-blocked errors.
+    if (!this._app || !this._auth) {
+      const ok = await this._loadSDK();
+      if (!ok) throw new Error('FB_NOT_CONFIGURED');
+    }
     const provider = new firebase.auth.GoogleAuthProvider();
-    const result = await this._auth.signInWithPopup(provider);
-    this._user = result.user;
-    return result.user;
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    if (this._preferRedirect()) {
+      // Mobile / PWA standalone: redirect is the only reliable method
+      await this._auth.signInWithRedirect(provider);
+      return null; // Page will reload; result captured in init() → getRedirectResult()
+    }
+    // Desktop: try popup, fall back to redirect if blocked
+    try {
+      const result = await this._auth.signInWithPopup(provider);
+      this._user = result.user;
+      return result.user;
+    } catch (e) {
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user'
+          || e.code === 'auth/cancelled-popup-request') {
+        await this._auth.signInWithRedirect(provider);
+        return null;
+      }
+      throw e;
+    }
   },
 
   async signOut() {
@@ -4046,42 +4086,33 @@ Views.settings = {
       if (results.length > 0) this.render(container);
     });
 
-    // ── Google 登入（API卡片內 inline 按鈕） ──
+    // ── Google 登入（共用 handler — 支援 popup 與 redirect 兩種流程） ──
     const _doSignIn = async (btn) => {
       if (btn) { btn.disabled = true; btn.textContent = '登入中…'; }
       try {
-        await Firebase.signIn();
-        showToast('✓ 已登入 ' + Firebase.getUserEmail());
-        this.render(container);
+        const user = await Firebase.signIn();
+        if (user) {
+          // Popup flow: user returned immediately
+          showToast('✓ 已登入 ' + Firebase.getUserEmail());
+          this.render(container);
+        } else {
+          // Redirect flow: page is about to reload — show a brief hint
+          showToast('正在跳轉 Google 登入…', 2000);
+          // btn stays disabled; page reload will complete the flow
+        }
       } catch(e) {
         let msg = '登入失敗，請稍後再試';
-        if (e.code === 'auth/popup-blocked')        msg = '彈出視窗被封鎖，請允許後再試';
-        if (e.code === 'auth/popup-closed-by-user') msg = '登入視窗已關閉';
+        if (e.code === 'auth/popup-closed-by-user')    msg = '登入視窗已關閉';
+        if (e.code === 'auth/cancelled-popup-request') msg = '登入已取消，請重試';
+        if (e.message === 'FB_NOT_CONFIGURED')         msg = '初始化失敗，請稍後再試';
         showToast(msg, 3000);
         if (btn) { btn.disabled = false; btn.textContent = '使用 Google 帳號登入'; }
       }
     };
     document.getElementById('fb-signin-inline-btn')?.addEventListener('click', (e) => _doSignIn(e.currentTarget));
 
-
-
     // ── Google 登入（雲端同步區塊按鈕） ──
-    document.getElementById('fb-signin-btn')?.addEventListener('click', async () => {
-      const btn = document.getElementById('fb-signin-btn');
-      if (btn) { btn.disabled = true; btn.textContent = '登入中…'; }
-      try {
-        await Firebase.signIn();
-        showToast('✓ 已登入 ' + Firebase.getUserEmail());
-        this.render(container);
-      } catch(e) {
-        let msg = '登入失敗，請稍後再試';
-        if (e.code === 'auth/popup-blocked')      msg = '彈出視窗被封鎖，請允許後再試';
-        if (e.code === 'auth/popup-closed-by-user') msg = '登入視窗已關閉';
-        if (e.message === 'FB_NOT_CONFIGURED')    msg = '請先儲存 Firebase 設定';
-        showToast(msg, 3000);
-        if (btn) { btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" style="flex-shrink:0"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>使用 Google 帳號登入'; }
-      }
-    });
+    document.getElementById('fb-signin-btn')?.addEventListener('click', (e) => _doSignIn(e.currentTarget));
 
     // ── Google 登出 ──
     document.getElementById('fb-signout-btn')?.addEventListener('click', async () => {
@@ -4186,7 +4217,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ── Firebase init + auto-sync on startup ──
   try {
     await Firebase.init();
-      if (Firebase.isSignedIn() && DB.getFbAutoSync()) {
+    if (Firebase.isSignedIn()) {
+      // Refresh settings UI if user just returned from a redirect sign-in
+      if (Router._current === 'settings') {
+        Views.settings?.render?.(document.getElementById('view-container'));
+      }
+      if (DB.getFbAutoSync()) {
         showToast('☁️ 自動同步中…', 1800);
         try {
           const data = await Firebase.download();
@@ -4196,6 +4232,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (e.message !== 'NO_CLOUD_DATA') console.warn('Auto-sync download failed', e);
         }
       }
+    }
   } catch(e) { console.warn('Firebase init failed', e); }
 
   // ── Global back-to-top FAB (all pages except quiz / essay) ──
