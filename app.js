@@ -1058,8 +1058,11 @@ const Firebase = {
 
   // ── Auth state ──
   isReady()     { return !!this._app; },
-  isSignedIn()  { return !!this._user; },
-  getUserEmail(){ return this._user?.email || ''; },
+  // Use Firebase's own currentUser as ground truth — more reliable than _user
+  // which can be cleared by a brief onAuthStateChanged(null) on iOS/PWA resume
+  isSignedIn()  { return !!(this._user || this._auth?.currentUser); },
+  getUserEmail(){ return (this._user || this._auth?.currentUser)?.email || ''; },
+  _currentUser(){ return this._user || this._auth?.currentUser || null; },
 
   // ── Detect PWA standalone or mobile (popup unreliable on iOS/PWA) ──
   _preferRedirect() {
@@ -1074,6 +1077,10 @@ const Firebase = {
   async init() {
     const ok = await this._loadSDK();
     if (!ok) return false;
+    // ── Force LOCAL persistence so auth survives iOS ITP / PWA resume ──
+    try {
+      await this._auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    } catch(e) { /* older SDK may not support — ignore */ }
     // ── Handle redirect result FIRST (after signInWithRedirect returns) ──
     try {
       const result = await this._auth.getRedirectResult();
@@ -1082,10 +1089,19 @@ const Firebase = {
       if (e.code !== 'auth/no-auth-event') console.warn('getRedirectResult:', e.code);
     }
     // ── Persistent auth-state listener ──
+    // NOTE: only clear _user on explicit null — never overwrite a valid user
+    // with null from a transient auth re-check (iOS PWA resume / token refresh)
     return new Promise(resolve => {
       let resolved = false;
       this._auth.onAuthStateChanged(user => {
-        this._user = user;
+        if (user) {
+          // Always update when we have a real user
+          this._user = user;
+        } else if (resolved) {
+          // After initial load: null means signed-out — trust it
+          this._user = null;
+        }
+        // On first fire with null: do NOT overwrite _user (could be transient)
         if (!resolved) { resolved = true; resolve(true); }
       });
     });
@@ -1144,8 +1160,8 @@ const Firebase = {
 
   // ── Upload: local → Firebase (rotating 5-slot backup) ──
   async upload() {
-    if (!this._user) throw new Error('NOT_SIGNED_IN');
-    const uid  = this._user.uid;
+    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
+    const uid  = _u.uid;
     const data = this._buildPayload();
     const slotsRef = this._db.ref(`users/${uid}/backups`);
     // Read existing slots
@@ -1163,8 +1179,8 @@ const Firebase = {
 
   // ── List backups ──
   async listBackups() {
-    if (!this._user) throw new Error('NOT_SIGNED_IN');
-    const uid  = this._user.uid;
+    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
+    const uid  = _u.uid;
     const snap = await this._db.ref(`users/${uid}/backups`).once('value');
     let slots = snap.val() || [];
     if (!Array.isArray(slots)) slots = Object.values(slots);
@@ -1173,8 +1189,8 @@ const Firebase = {
 
   // ── Download single slot ──
   async downloadSlot(idx) {
-    if (!this._user) throw new Error('NOT_SIGNED_IN');
-    const uid  = this._user.uid;
+    const _u = this._currentUser(); if (!_u) throw new Error('NOT_SIGNED_IN');
+    const uid  = _u.uid;
     const snap = await this._db.ref(`users/${uid}/backups/${idx}`).once('value');
     const data = snap.val();
     if (!data) throw new Error('NO_CLOUD_DATA');
