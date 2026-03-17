@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.21
+// 英文單字複習 PWA - app.js v9.22
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1270,12 +1270,14 @@ function highlightEn(text, word) {
   if (!word || !text) return text;
   return text.replace(new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'), '<span class="hl-en">$1</span>');
 }
-function highlightZh(text, word) {
-  if (!word || !text) return text;
-  return text.replace(new RegExp(`(${word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'g'), '<span class="hl-zh">$1</span>');
+function highlightZh(text, wordZh) {
+  if (!wordZh || !text) return text;
+  const tokens = wordZh.split(/[、，,；;／/\s]+/).map(t => t.replace(/[（(）)【】「」『』""''<>]/g,'').trim()).filter(t => t.length >= 2);
+  if (!tokens.length) return text;
+  tokens.sort((a,b) => b.length - a.length);
+  const pattern = tokens.map(t => t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  return text.replace(new RegExp(`(${pattern})`, 'g'), '<span class="hl-zh">$1</span>');
 }
-
-// ===== Text-to-Speech =====
 const TTS = {
   _synth: window.speechSynthesis || null,
   _enabled: localStorage.getItem('ttsEnabled') !== 'false',
@@ -1385,7 +1387,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.21</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.22</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
