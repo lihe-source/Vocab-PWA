@@ -1,5 +1,5 @@
 // ===========================
-// 英文單字複習 PWA - app.js v9.22
+// 英文單字複習 PWA - app.js v9.23
 // 更新：新增 TTS 單字發音（出題自動唸出、可重播）、顯示答案改為紅色
 // ===========================
 
@@ -1387,7 +1387,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.22</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.23</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -1473,9 +1473,8 @@ Views.home = {
       logContent.innerHTML = `<div class="log-empty">尚無例句記錄<br><span style="font-size:12px">可生成 AI 例句，或在設定頁匯入 CSV 例句</span></div>`;
       return;
     }
-    // Show most recent 5 items; wrap in scrollable container
-    const recent = log.slice(0, 5);
-    logContent.innerHTML = `<div class="sentence-log-scroll">${recent.map(entry => `
+    // Show all entries in a scrollable container (shows ~4 at a time)
+    logContent.innerHTML = `<div class="sentence-log-scroll">${log.map(entry => `
       <div class="log-entry-card">
         <div class="log-entry-header">
           <span class="log-date">${entry.date}</span>
