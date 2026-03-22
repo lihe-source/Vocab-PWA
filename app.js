@@ -10,8 +10,17 @@ if ('serviceWorker' in navigator) {
 // ===== Web Audio Sound Effects =====
 const Sound = {
   ctx: null,
+  // Unlock / resume AudioContext — must be called from a user-gesture handler
+  unlock() {
+    try {
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+    } catch(e) {}
+  },
   getCtx() {
     if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS: resume if suspended (can happen after app backgrounding)
+    if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
   },
   playCorrect() {
@@ -1387,7 +1396,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.24</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9.25</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -1536,6 +1545,7 @@ Views.practice = {
       // quiz = already here, no navigation needed
     });
     document.getElementById('start-btn').addEventListener('click', () => {
+      Sound.unlock(); // Prime AudioContext on user gesture before quiz starts
       const selected = selectWords(state.selectedCount, state.selectedMode, DB.getBoostedWords());
       if (!selected.length) { showToast('沒有可練習的單字'); return; }
       state.words = selected; state.currentIdx = 0; state.wrongWords = []; state.phase = 'quiz';
@@ -1747,6 +1757,7 @@ Views.practice = {
     wrap.addEventListener('click', (e) => { e.stopPropagation(); ghost.focus(); });
     const _qa = document.querySelector('.quiz-area');
     if (_qa) { _qa.onclick = () => { if (this._ghost) this._ghost.focus(); }; }
+    Sound.unlock(); // ensure AudioContext is running before first keystroke
     ghost.focus(); updateVisual(); // removed ghost.click() — causes extra event overhead
   },
   // Canonical answer normaliser — strips everything except a-z, lowercases
