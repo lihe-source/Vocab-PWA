@@ -17,22 +17,32 @@
 // ===== Web Audio Sound Effects =====
 const Sound = {
   ctx: null,
-  // Unlock / resume AudioContext — must be called from a user-gesture handler
-  unlock() {
-    try {
-      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      if (this.ctx.state === 'suspended') this.ctx.resume();
-    } catch(e) {}
-  },
-  getCtx() {
+  // Create or return AudioContext
+  _getCtx() {
     if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    // iOS: resume if suspended (can happen after app backgrounding)
-    if (this.ctx.state === 'suspended') this.ctx.resume();
     return this.ctx;
   },
-  playCorrect() {
+  // Unlock / prime — call this from a direct user-gesture handler
+  unlock() {
     try {
-      const ctx = this.getCtx();
+      const ctx = this._getCtx();
+      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+    } catch(e) {}
+  },
+  // Schedule audio only AFTER context is confirmed running (handles async resume)
+  _withCtx(fn) {
+    try {
+      const ctx = this._getCtx();
+      if (ctx.state === 'running') {
+        fn(ctx);
+      } else {
+        // Context is suspended — resume first, then play
+        ctx.resume().then(() => fn(ctx)).catch(() => {});
+      }
+    } catch(e) {}
+  },
+  playCorrect() {
+    this._withCtx(ctx => {
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.connect(g); g.connect(ctx.destination); o.type = 'sine';
       o.frequency.setValueAtTime(523, ctx.currentTime);
@@ -41,11 +51,10 @@ const Sound = {
       g.gain.setValueAtTime(0.4, ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
       o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.5);
-    } catch(e) {}
+    });
   },
   playWrong() {
-    try {
-      const ctx = this.getCtx();
+    this._withCtx(ctx => {
       const o = ctx.createOscillator(); const g = ctx.createGain();
       o.connect(g); g.connect(ctx.destination); o.type = 'sawtooth';
       o.frequency.setValueAtTime(200, ctx.currentTime);
@@ -53,12 +62,11 @@ const Sound = {
       g.gain.setValueAtTime(0.3, ctx.currentTime);
       g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
       o.start(ctx.currentTime); o.stop(ctx.currentTime + 0.3);
-    } catch(e) {}
+    });
   },
   // pct: 0-100 → play tiered result fanfare
   playResult(pct) {
-    try {
-      const ctx = this.getCtx();
+    this._withCtx(ctx => {
       const t = ctx.currentTime;
       if (pct === 100) {
         // Perfect: bright 5-note ascending fanfare + shimmer
@@ -123,7 +131,7 @@ const Sound = {
         g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
         o.start(t); o.stop(t + 0.55);
       }
-    } catch(e) {}
+    });
   }
 };
 
@@ -529,6 +537,8 @@ const DB = {
   setFbLastSync(v) { localStorage.setItem('fbLastSync', v); },
   getBoostedWords() { try { return JSON.parse(localStorage.getItem('boostedWords') || '[]'); } catch { return []; } },
   saveBoostedWords(ids) { localStorage.setItem('boostedWords', JSON.stringify(ids)); },
+  getTtsDelay()    { return parseInt(localStorage.getItem('ttsDelay') || '300'); },
+  saveTtsDelay(ms) { localStorage.setItem('ttsDelay', String(ms)); },
   toggleBoost(id) {
     const b = this.getBoostedWords(); const idx = b.indexOf(id);
     if (idx === -1) b.push(id); else b.splice(idx, 1);
@@ -1403,7 +1413,7 @@ Views.home = {
           </div>
           <div class="menu-card" data-nav="settings">
             <div class="menu-icon" style="background:#f0e8ff"><svg viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
-            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9_6</div></div>
+            <div><div class="menu-card-title">設定</div><div class="menu-card-sub">API Key 與例句匯入</div><div class="menu-card-ver">版本別：V9_7</div></div>
           </div>
         </div>
         <div class="sentence-log-section">
@@ -1535,6 +1545,17 @@ Views.practice = {
             <div class="radio-option selected" data-mode="all"><div class="radio-circle"></div><div><div class="radio-text">全部隨機</div><div class="radio-sub">從題庫所有單字中隨機出題</div></div></div>
           </div>
         </div>
+        <div class="option-group">
+          <div class="option-label">唸單字延遲</div>
+          <div class="option-chips">
+            ${[0,300,600,1000,2000].map(ms => {
+              const label = ms === 0 ? '立即' : ms < 1000 ? ms+'ms' : (ms/1000)+'s';
+              const saved = DB.getTtsDelay();
+              return `<button class="chip ${ms === saved ? 'selected' : ''}" data-tts-delay="${ms}">${label}</button>`;
+            }).join('')}
+          </div>
+          <div class="num-words-info">進入單字練習後，系統唸出單字前的等待時間</div>
+        </div>
         <button class="btn-primary" id="start-btn" ${totalWords===0?'disabled':''}>開始練習</button>
       </div>
     `;
@@ -1551,6 +1572,14 @@ Views.practice = {
       else if (mode === 'aiask') Views.aiAsk.render(container);
       // quiz = already here, no navigation needed
     });
+    container.querySelectorAll('[data-tts-delay]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('[data-tts-delay]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        DB.saveTtsDelay(parseInt(btn.dataset.ttsDelay));
+      });
+    });
+
     document.getElementById('start-btn').addEventListener('click', () => {
       Sound.unlock(); // Prime AudioContext on user gesture before quiz starts
       const selected = selectWords(state.selectedCount, state.selectedMode, DB.getBoostedWords());
@@ -1635,7 +1664,7 @@ Views.practice = {
     document.getElementById('show-answer-btn')?.addEventListener('click', () => this.showAnswer(word, container));
     // Speak the word aloud when it appears (slight delay so keyboard doesn't interrupt)
     // Delay TTS: 600ms for first word (voices may still be loading), 300ms for subsequent
-    const ttsDelay = this.state.currentIdx === 0 ? 600 : 300;
+    const ttsDelay = DB.getTtsDelay();
     setTimeout(() => TTS.speakWhenReady(word.english, 0.82), ttsDelay);
   },
   buildLetterBoxes(word, container) {
@@ -1760,12 +1789,12 @@ Views.practice = {
     ghost.addEventListener('input', ghost._inputH);
     ghost.style.pointerEvents = 'auto';
     wrap.style.cursor = 'text';
-    // Tap anywhere in letter-wrap or the quiz-area to re-focus ghost
-    wrap.addEventListener('click', (e) => { e.stopPropagation(); ghost.focus(); });
+    // Use .onclick assignment (not addEventListener) so it never accumulates across buildLetterBoxes calls
+    wrap.onclick = (e) => { e.stopPropagation(); ghost.focus(); };
     const _qa = document.querySelector('.quiz-area');
     if (_qa) { _qa.onclick = () => { if (this._ghost) this._ghost.focus(); }; }
     Sound.unlock(); // ensure AudioContext is running before first keystroke
-    ghost.focus(); updateVisual(); // removed ghost.click() — causes extra event overhead
+    ghost.focus(); updateVisual();
   },
   // Canonical answer normaliser — strips everything except a-z, lowercases
   _norm(s) { return (s || '').replace(/[^a-zA-Z]/g, '').toLowerCase(); },
